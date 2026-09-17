@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Główne okno: tylko IPC do komend aplikacji. Brak dostępu do plików, shella i sieci z poziomu webview.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

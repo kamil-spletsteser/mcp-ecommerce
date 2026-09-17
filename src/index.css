@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+/* Tokeny kolorów jako zmienne CSS: tryb ciemny to tylko podmiana wartości, bez wariantów `dark:` w komponentach. */
+@theme {
+  --color-page: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-ink: #161a22;
+  --color-muted: #5d6676;
+  --color-line: #e2e5ea;
+  --color-accent: #4f46e5;
+  --color-accent-ink: #ffffff;
+  --color-ok: #15803d;
+  --color-ok-soft: #dcfce7;
+  --color-warn: #b45309;
+  --color-warn-soft: #fef3c7;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-neutral-soft: #eceef2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-page: #12141a;
+    --color-surface: #1b1e27;
+    --color-ink: #eef0f4;
+    --color-muted: #a0a8b8;
+    --color-line: #2c313d;
+    --color-accent: #818cf8;
+    --color-accent-ink: #12141a;
+    --color-ok: #4ade80;
+    --color-ok-soft: #12351f;
+    --color-warn: #fbbf24;
+    --color-warn-soft: #3d2f0c;
+    --color-danger: #f87171;
+    --color-danger-soft: #401818;
+    --color-neutral-soft: #262a35;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+dialog::backdrop {
+  background: rgb(10 12 18 / 0.5);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

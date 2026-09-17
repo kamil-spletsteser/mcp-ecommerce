@@ -1,0 +1,20 @@
+# zależności i buildy
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+coverage/
+*.tsbuildinfo
+
+# cudze repozytoria trzymane lokalnie jako inspiracja (mają własne .git)
+samples/
+
+# lokalne / systemowe
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+.idea/
+.vscode/
+.claude/settings.local.json
