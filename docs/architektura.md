@@ -78,8 +78,13 @@ Dokumentacja API nie publikuje pełnej listy kodów błędów, więc mapowanie d
 ### Allegro (OAuth Device Flow, tylko odczyt)
 
 Każdy użytkownik rejestruje własną, bezpłatną aplikację typu „device” w apps.developer.allegro.pl i wkleja w GUI
-**Client ID** (niesekretny → `Source.settings`) oraz **Client Secret** (credential store). Potem „Połącz z Allegro”:
-aplikacja pobiera kod urządzenia, otwiera stronę Allegro w przeglądarce (adres sprawdzany: musi prowadzić do `https://allegro.pl/`),
+**Client ID** oraz wymagany przez Allegro nagłówek **User-Agent** (`NazwaAplikacji/Wersja (+URL)`, używany do białej listy;
+oba niesekretne → `Source.settings`) i **Client Secret** (credential store). Pole **Środowisko** wybiera jedną z dwóch stałych par
+hostów: produkcja (`api.allegro.pl` / `allegro.pl`) albo sandbox (`api.allegro.pl.allegrosandbox.pl` / `allegro.pl.allegrosandbox.pl`)
+— to zamknięta lista, nie dowolny adres. User-Agent źródła idzie w każdym zapytaniu do API i do logowania; jego zmiana nie zrywa
+połączenia (`FieldSpec.resets_auth = false`), zmiana środowiska, Client ID lub Secret — tak (kasuje tokeny). Potem „Połącz z Allegro”:
+aplikacja pobiera kod urządzenia, otwiera stronę Allegro w przeglądarce (adres sprawdzany: musi prowadzić do serwisu logowania
+wybranego środowiska, np. `https://allegro.pl/`),
 pokazuje kod do porównania i odpytuje o wynik (`authorization_pending`, `slow_down`/429 → rzadziej, limit czasu z `expires_in`).
 `device_code` nigdy nie trafia do webview. Prosimy tylko o scope'y odczytu: `orders:read`, `sale:offers:read`, `profile:read`.
 
@@ -148,6 +153,6 @@ sprawdzi nowy provider automatycznie.
 
 - **Auto-aktualizacje:** brak `tauri-plugin-updater`, dopóki nie ma serwera aktualizacji i kluczy podpisu. Fundament: wersja z `Cargo.toml`/`tauri.conf.json` jest widoczna w GUI, raporcie i `serverInfo` MCP; włączenie opisuje [pakowanie.md](pakowanie.md).
 - **Podpisywanie/notaryzacja:** konfiguracja w CI jest przygotowana, artefakty są na razie niepodpisane.
-- **Allegro — zapis:** wersja 1 tylko czyta (bez zmiany statusu realizacji, numerów przesyłek i wiadomości); brak też trybu sandbox.
+- **Allegro — zapis:** wersja 1 tylko czyta (bez zmiany statusu realizacji, numerów przesyłek i wiadomości).
 - **Codex / Claude Code:** zakładka Codex jest widoczna jako „wkrótce”; serwer MCP jest zwykłym serwerem stdio, więc ręczna
   konfiguracja (`command` = ścieżka binarium, `args` = `["mcp"]`) działa w każdym kliencie MCP.

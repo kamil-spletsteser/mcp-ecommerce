@@ -28,10 +28,29 @@ const OFFER_STATUSES: [&str; 4] = ["INACTIVE", "ACTIVE", "ACTIVATING", "ENDED"];
 /// Allegro: `limit + offset` dla zamówień nie może przekroczyć 10 000.
 const ORDERS_WINDOW: i64 = 10_000;
 
+/// Zamknięta lista środowisk — jedyny sposób wpływania na adres, z którym rozmawia provider.
+const ENVIRONMENTS: [&str; 2] = ["production", "sandbox"];
+const DEFAULT_USER_AGENT: &str = concat!("ecommerce-mcp/", env!("CARGO_PKG_VERSION"));
+
+/// Adresy API i serwisu logowania (OAuth żyje na gołym `allegro.pl`, nie na `api.`).
+pub(super) struct Hosts {
+    pub api: String,
+    pub auth: String,
+}
+
+fn hosts_for(environment: Option<&str>) -> Result<Hosts, ToolError> {
+    let (api, auth) = match environment.unwrap_or("production") {
+        "production" => ("https://api.allegro.pl", "https://allegro.pl"),
+        "sandbox" => ("https://api.allegro.pl.allegrosandbox.pl", "https://allegro.pl.allegrosandbox.pl"),
+        other => return Err(ToolError::validation(format!("Unknown Allegro environment '{other}'."))),
+    };
+    Ok(Hosts { api: api.into(), auth: auth.into() })
+}
+
 pub struct Allegro {
     http: reqwest::Client,
-    api_base: String,
-    auth_base: String,
+    /// Tylko testy i buildy debug: jeden mock udający API i logowanie. W release zawsze `None`.
+    base_override: Option<String>,
     backoff: Duration,
     /// Plik-blokada odświeżania tokenów (patrz `auth.rs`).
     lock_path: std::path::PathBuf,
@@ -39,14 +58,13 @@ pub struct Allegro {
 
 impl Default for Allegro {
     fn default() -> Self {
-        let lock_path = crate::config::data_dir().join("allegro-refresh.lock");
-        // Hosty są stałe — żadne narzędzie ani ustawienie nie pozwala podać własnego adresu.
-        // Nadpisanie wyłącznie w buildach debug na potrzeby testów E2E z mockiem (jeden serwer udaje API i logowanie).
+        let mut allegro = Self::new(Duration::from_secs(30), Duration::from_millis(500), crate::config::data_dir().join("allegro-refresh.lock"));
+        // Nadpisanie adresu wyłącznie w buildach debug na potrzeby testów E2E z mockiem.
         #[cfg(debug_assertions)]
         if let Ok(url) = std::env::var("ECOMMERCE_MCP_ALLEGRO_URL") {
-            return Self::with_urls(url.clone(), url, Duration::from_secs(30), Duration::from_millis(500), lock_path);
+            allegro.base_override = Some(url);
         }
-        Self::with_urls("https://api.allegro.pl".into(), "https://allegro.pl".into(), Duration::from_secs(30), Duration::from_millis(500), lock_path)
+        allegro
     }
 }
 
@@ -57,15 +75,35 @@ enum Fetched {
 }
 
 impl Allegro {
-    pub fn with_urls(api_base: String, auth_base: String, timeout: Duration, backoff: Duration, lock_path: std::path::PathBuf) -> Self {
-        Self { http: http::client(timeout), api_base, auth_base, backoff, lock_path }
+    pub fn new(timeout: Duration, backoff: Duration, lock_path: std::path::PathBuf) -> Self {
+        Self { http: http::client(timeout), base_override: None, backoff, lock_path }
+    }
+
+    /// Testy: cały ruch (API i logowanie) do jednego mocka.
+    pub fn with_mock(url: String, timeout: Duration, backoff: Duration, lock_path: std::path::PathBuf) -> Self {
+        Self { base_override: Some(url), ..Self::new(timeout, backoff, lock_path) }
+    }
+
+    /// Hosty wynikają z ustawienia `environment` źródła (produkcja domyślnie) — nigdy z argumentów narzędzi.
+    pub(super) fn hosts(&self, ctx: &SourceContext<'_>) -> Result<Hosts, ToolError> {
+        match &self.base_override {
+            Some(url) => Ok(Hosts { api: url.clone(), auth: url.clone() }),
+            None => hosts_for(ctx.source.settings["environment"].as_str()),
+        }
+    }
+
+    /// Allegro wymaga stałego nagłówka `NazwaAplikacji/Wersja (+URL)` i używa go do białej listy aplikacji.
+    pub(super) fn user_agent<'a>(ctx: &'a SourceContext<'_>) -> &'a str {
+        ctx.source.settings["user_agent"].as_str().filter(|ua| !ua.is_empty()).unwrap_or(DEFAULT_USER_AGENT)
     }
 
     /// GET z automatycznym, jednorazowym odświeżeniem tokenu po 401. Tylko odczyty → ponowienia dla błędów przejściowych.
     async fn get(&self, ctx: &SourceContext<'_>, path: &str, query: &[(&str, String)]) -> Result<Value, ToolError> {
         let mut access = ctx.secret(auth::ACCESS_TOKEN).map_err(auth::not_connected)?;
+        let url = format!("{}{path}", self.hosts(ctx)?.api);
+        let user_agent = Self::user_agent(ctx);
         for refreshed in [false, true] {
-            match http::with_retries(&format!("allegro GET {path}"), true, self.backoff, || self.get_once(&access, path, query)).await? {
+            match http::with_retries(&format!("allegro GET {path}"), true, self.backoff, || self.get_once(&access, &url, user_agent, query)).await? {
                 Fetched::Json(json) => return Ok(json),
                 Fetched::Unauthorized if !refreshed => access = self.refresh(ctx, &access).await?,
                 Fetched::Unauthorized => break,
@@ -74,11 +112,12 @@ impl Allegro {
         Err(auth::unauthorized_after_refresh())
     }
 
-    async fn get_once(&self, access: &Secret, path: &str, query: &[(&str, String)]) -> Attempt<Fetched> {
+    async fn get_once(&self, access: &Secret, url: &str, user_agent: &str, query: &[(&str, String)]) -> Attempt<Fetched> {
         let response = self
             .http
-            .get(format!("{}{path}", self.api_base))
+            .get(url)
             .bearer_auth(access.expose())
+            .header("User-Agent", user_agent)
             .header("Accept", "application/vnd.allegro.public.v1+json")
             .header("Accept-Language", "pl-PL")
             .query(query)
@@ -121,8 +160,11 @@ impl Provider for Allegro {
             name: "Allegro",
             auth: AuthKind::OauthDevice,
             fields: vec![
-                FieldSpec { key: auth::CLIENT_ID, secret: false, required: true, max_len: 100 },
-                FieldSpec { key: auth::CLIENT_SECRET, secret: true, required: true, max_len: 200 },
+                FieldSpec::new("environment", false, false, 20).options(&ENVIRONMENTS),
+                FieldSpec::new(auth::CLIENT_ID, false, true, 100),
+                FieldSpec::new(auth::CLIENT_SECRET, true, true, 200),
+                // zmiana User-Agenta nie unieważnia tokenów — bez ponownej autoryzacji
+                FieldSpec::new("user_agent", false, true, 200).keeps_auth(),
             ],
             capabilities: vec![
                 Capability { label_key: "cap.orders.read", write: false, tools: vec!["list_orders", "get_order"] },
@@ -136,12 +178,17 @@ impl Provider for Allegro {
         let ok = match key {
             auth::CLIENT_ID => (8..=100).contains(&value.len()) && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
             auth::CLIENT_SECRET => (8..=200).contains(&value.len()) && value.chars().all(|c| c.is_ascii_graphic()),
+            "environment" => ENVIRONMENTS.contains(&value),
+            // tylko drukowalne ASCII: znak nowej linii w nagłówku = wstrzyknięcie nagłówków
+            "user_agent" => (5..=200).contains(&value.len()) && value.chars().all(|c| c.is_ascii_graphic() || c == ' '),
             _ => return Err(ToolError::validation(format!("Unknown field '{key}'."))),
         };
         if ok {
             Ok(())
         } else {
-            Err(ToolError::validation("Client ID and Client Secret must be copied exactly from apps.developer.allegro.pl (no spaces)."))
+            Err(ToolError::validation(
+                "Copy Client ID, Client Secret and the User-Agent exactly as shown at apps.developer.allegro.pl (User-Agent format: AppName/1.0.0 (+https://example.com/info)).",
+            ))
         }
     }
 

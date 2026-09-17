@@ -15,6 +15,7 @@ const CLIENT_ID: &str = "0123456789abcdef0123456789abcdef";
 const CLIENT_SECRET: &str = "ClientSecretClientSecretClientSecret0123456789";
 /// base64("0123456789abcdef0123456789abcdef:ClientSecretClientSecretClientSecret0123456789")
 const BASIC: &str = "Basic MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY6Q2xpZW50U2VjcmV0Q2xpZW50U2VjcmV0Q2xpZW50U2VjcmV0MDEyMzQ1Njc4OQ==";
+const USER_AGENT: &str = "SklepDemo/1.0.0 (+https://sklep.example/info)";
 const ORDER_ID: &str = "29738e61-7f6a-11e8-ac45-09db60ede9d6";
 
 struct Fixture {
@@ -31,14 +32,14 @@ impl Fixture {
         let secrets = Arc::new(MemoryStore::default());
         let dir = tempfile::tempdir().unwrap();
         let fixture = Self {
-            provider: Allegro::with_urls(server.uri(), server.uri(), Duration::from_millis(300), Duration::from_millis(5), dir.path().join("refresh.lock")),
+            provider: Allegro::with_mock(server.uri(), Duration::from_millis(300), Duration::from_millis(5), dir.path().join("refresh.lock")),
             source: Source {
                 source_id: "moje_allegro".into(),
                 provider: "allegro".into(),
                 name: "Moje Allegro".into(),
                 enabled: true,
                 created_at: 0,
-                settings: json!({ "client_id": CLIENT_ID }),
+                settings: json!({ "client_id": CLIENT_ID, "user_agent": USER_AGENT, "environment": "sandbox" }),
                 last_test: None,
             },
             secrets,
@@ -92,6 +93,7 @@ async fn device_flow_starts_with_app_credentials_and_read_only_scopes() {
     Mock::given(method("POST"))
         .and(path("/auth/oauth/device"))
         .and(header("Authorization", BASIC))
+        .and(header("User-Agent", USER_AGENT))
         .and(body_string_contains(format!("client_id={CLIENT_ID}")))
         .and(body_string_contains("allegro%3Aapi%3Aorders%3Aread"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -177,6 +179,7 @@ async fn expired_access_token_is_refreshed_once_and_rotation_is_persisted() {
     Mock::given(path("/me"))
         .and(header("Authorization", "Bearer access-token-BBB"))
         .and(header("Accept", "application/vnd.allegro.public.v1+json"))
+        .and(header("User-Agent", USER_AGENT))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "44", "login": "sklep_demo", "email": "a@b.pl", "firstName": "Jan" })))
         .mount(&f.server)
         .await;
@@ -397,11 +400,42 @@ async fn upstream_statuses_are_normalized() {
 }
 
 #[test]
+fn environment_selects_one_of_two_fixed_host_pairs() {
+    let hosts = |environment| hosts_for(environment).map(|h| (h.api, h.auth));
+    assert_eq!(hosts(None).unwrap(), ("https://api.allegro.pl".to_string(), "https://allegro.pl".to_string()), "brak ustawienia = produkcja");
+    assert_eq!(hosts(Some("production")).unwrap().0, "https://api.allegro.pl");
+    assert_eq!(hosts(Some("sandbox")).unwrap(), ("https://api.allegro.pl.allegrosandbox.pl".to_string(), "https://allegro.pl.allegrosandbox.pl".to_string()));
+    assert_eq!(hosts(Some("https://evil.example")).unwrap_err().code, ErrorCode::ValidationError);
+
+    // bez nadpisania (release) hosty wynikają wyłącznie z ustawienia źródła; bez User-Agenta idzie domyślny
+    let provider = Allegro::new(Duration::from_secs(1), Duration::from_millis(1), std::env::temp_dir().join("unused.lock"));
+    let secrets = MemoryStore::default();
+    let mut source = Source {
+        source_id: "a".into(),
+        provider: "allegro".into(),
+        name: "A".into(),
+        enabled: true,
+        created_at: 0,
+        settings: json!({ "environment": "sandbox" }),
+        last_test: None,
+    };
+    assert_eq!(provider.hosts(&SourceContext { source: &source, secrets: &secrets }).unwrap().auth, "https://allegro.pl.allegrosandbox.pl");
+    assert!(Allegro::user_agent(&SourceContext { source: &source, secrets: &secrets }).starts_with("ecommerce-mcp/"));
+    source.settings = json!({ "environment": "moon" });
+    assert!(provider.hosts(&SourceContext { source: &source, secrets: &secrets }).is_err());
+}
+
+#[test]
 fn form_fields_are_validated_locally() {
     let provider = Allegro::default();
     assert!(provider.validate_field("client_id", CLIENT_ID).is_ok());
     assert!(provider.validate_field("client_secret", CLIENT_SECRET).is_ok());
+    assert!(provider.validate_field("user_agent", USER_AGENT).is_ok());
+    assert!(provider.validate_field("environment", "sandbox").is_ok());
     for (key, bad) in [
+        ("user_agent", "Sklep/1.0\r\nX-Injected: 1"),
+        ("user_agent", "Zażółć/1.0"),
+        ("environment", "staging"),
         ("client_id", "short"),
         ("client_id", "has space in the client id"),
         ("client_secret", ""),

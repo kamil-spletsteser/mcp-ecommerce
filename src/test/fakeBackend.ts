@@ -7,7 +7,7 @@ const providers: AppState["providers"] = [
     id: "baselinker",
     name: "BaseLinker",
     auth: "fields",
-    fields: [{ key: "api_token", secret: true, required: true, max_len: 300 }],
+    fields: [{ key: "api_token", secret: true, required: true, max_len: 300, options: [], resets_auth: true }],
     capabilities: [
       { label_key: "cap.orders.read", write: false, tools: ["list_orders", "get_order"] },
       { label_key: "cap.statuses.read", write: false, tools: ["get_order_statuses"] },
@@ -28,8 +28,10 @@ const providers: AppState["providers"] = [
     name: "Allegro",
     auth: "oauth_device",
     fields: [
-      { key: "client_id", secret: false, required: true, max_len: 100 },
-      { key: "client_secret", secret: true, required: true, max_len: 200 },
+      { key: "environment", secret: false, required: false, max_len: 20, options: ["production", "sandbox"], resets_auth: true },
+      { key: "client_id", secret: false, required: true, max_len: 100, options: [], resets_auth: true },
+      { key: "client_secret", secret: true, required: true, max_len: 200, options: [], resets_auth: true },
+      { key: "user_agent", secret: false, required: true, max_len: 200, options: [], resets_auth: false },
     ],
     capabilities: [
       { label_key: "cap.orders.read", write: false, tools: ["list_orders", "get_order"] },

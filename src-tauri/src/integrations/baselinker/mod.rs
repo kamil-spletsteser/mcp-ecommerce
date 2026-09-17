@@ -71,7 +71,7 @@ impl Provider for BaseLinker {
             id: "baselinker",
             name: "BaseLinker",
             auth: AuthKind::Fields,
-            fields: vec![FieldSpec { key: TOKEN_KIND, secret: true, required: true, max_len: 300 }],
+            fields: vec![FieldSpec::new(TOKEN_KIND, true, true, 300)],
             capabilities: vec![
                 Capability { label_key: "cap.orders.read", write: false, tools: vec!["list_orders", "get_order"] },
                 Capability { label_key: "cap.statuses.read", write: false, tools: vec!["get_order_statuses"] },

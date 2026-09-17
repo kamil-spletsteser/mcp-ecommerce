@@ -27,11 +27,13 @@ impl Allegro {
     async fn oauth_post(&self, ctx: &SourceContext<'_>, path: &str, form: &[(&str, &str)]) -> Attempt<(u16, Value)> {
         let client_id = ctx.setting(CLIENT_ID).map_err(|e| (e, false))?;
         let client_secret = ctx.secret(CLIENT_SECRET).map_err(|e| (e, false))?;
+        let auth_host = self.hosts(ctx).map_err(|e| (e, false))?.auth;
         let response = self
             .http
-            .post(format!("{}{path}", self.auth_base))
+            .post(format!("{auth_host}{path}"))
             .basic_auth(client_id, Some(client_secret.expose()))
             .header("Accept", "application/json")
+            .header("User-Agent", Self::user_agent(ctx))
             .form(form)
             .send()
             .await
@@ -60,8 +62,8 @@ impl Allegro {
         else {
             return Err(ToolError::new(ErrorCode::UpstreamError, "Allegro returned an incomplete device authorization response."));
         };
-        // Adres otworzymy w przeglądarce użytkownika — tylko jeśli prowadzi do serwisu logowania Allegro.
-        if !uri.starts_with(&format!("{}/", self.auth_base)) {
+        // Adres otworzymy w przeglądarce użytkownika — tylko jeśli prowadzi do serwisu logowania Allegro (tego środowiska).
+        if !uri.starts_with(&format!("{}/", self.hosts(ctx)?.auth)) {
             return Err(ToolError::new(ErrorCode::UpstreamError, "Allegro returned an unexpected verification address."));
         }
         Ok(DeviceAuthorization {

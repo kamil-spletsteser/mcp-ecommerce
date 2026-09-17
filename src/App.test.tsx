@@ -68,12 +68,20 @@ test("Allegro: form → browser authorization with a code → connected, read-on
   render(<App />);
   await user.click((await screen.findAllByRole("button", { name: "+ Dodaj źródło" }))[0]);
   await user.click(screen.getByRole("button", { name: /Allegro/ }));
-  expect(screen.getByText(/apps\.developer\.allegro\.pl/)).toBeInTheDocument();
+  expect(screen.getByText(/zarejestruj nową aplikację/)).toBeInTheDocument();
   await user.type(screen.getByLabelText("Nazwa źródła"), "Moje Allegro");
   await user.type(screen.getByLabelText("Client ID"), "0123456789abcdef");
   await user.type(screen.getByLabelText("Client Secret"), SECRET);
+  await user.type(screen.getByLabelText(/^Nagłówek User-Agent/), "MojSklep/1.0.0 (+https://mojsklep.pl/info)");
+  // środowisko: domyślnie produkcja, do wyboru sandbox
+  expect(screen.getByLabelText(/^Środowisko Allegro/)).toHaveValue("production");
+  await user.selectOptions(screen.getByLabelText(/^Środowisko Allegro/), "sandbox");
   await user.click(screen.getByRole("button", { name: "Zapisz i połącz konto" }));
-  expect(backend.calls.find((c) => c.cmd === "add_source")?.args).toEqual({ provider: "allegro", name: "Moje Allegro", fields: { client_id: "0123456789abcdef", client_secret: SECRET } });
+  expect(backend.calls.find((c) => c.cmd === "add_source")?.args).toEqual({
+    provider: "allegro",
+    name: "Moje Allegro",
+    fields: { environment: "sandbox", client_id: "0123456789abcdef", client_secret: SECRET, user_agent: "MojSklep/1.0.0 (+https://mojsklep.pl/info)" },
+  });
 
   // krok autoryzacji: nic nie startuje samo; po kliknięciu widać kod do porównania z przeglądarką
   expect(backend.calls.some((c) => c.cmd === "start_authorization")).toBe(false);
@@ -87,6 +95,7 @@ test("Allegro: form → browser authorization with a code → connected, read-on
   expect(within(card).getByText("przeglądać oferty, ceny i stany")).toBeInTheDocument();
   expect(within(card).queryByText("zmienia dane")).not.toBeInTheDocument();
   expect(within(card).queryByRole("button", { name: "Połącz ponownie" })).not.toBeInTheDocument();
+  expect(within(card).getByText("Allegro · sandbox")).toBeInTheDocument();
   expect(document.body.innerHTML).not.toContain(SECRET);
 });
 
@@ -98,6 +107,7 @@ test("Allegro: abandoning authorization leaves a source that can be reconnected"
   await user.type(screen.getByLabelText("Nazwa źródła"), "Moje Allegro");
   await user.type(screen.getByLabelText("Client ID"), "0123456789abcdef");
   await user.type(screen.getByLabelText("Client Secret"), "AllegroSecretAllegroSecret0123456789");
+  await user.type(screen.getByLabelText(/^Nagłówek User-Agent/), "MojSklep/1.0.0 (+https://mojsklep.pl/info)");
   await user.click(screen.getByRole("button", { name: "Zapisz i połącz konto" }));
   await user.click(await screen.findByRole("button", { name: "Połącz z Allegro" }));
   await user.click(await screen.findByRole("button", { name: "Anuluj" }));

@@ -26,13 +26,16 @@ dodanie notatki) modyfikują dane w BaseLinkerze — klient AI poprosi Cię o zg
 
 Allegro wymaga, aby każdy sprzedawca miał własną, bezpłatną „aplikację” — to tylko para kluczy.
 
-1. Wejdź na **apps.developer.allegro.pl**, zaloguj się kontem sprzedawcy i zarejestruj nową aplikację. Jako typ wybierz
-   **„Aplikacja będzie działać w środowisku bez dostępu do przeglądarki”** (device). Zaznacz uprawnienia do **odczytu**
-   zamówień, ofert i danych konta.
-2. W E-commerce MCP kliknij **+ Dodaj źródło → Allegro**, wpisz nazwę oraz skopiowane **Client ID** i **Client Secret**,
-   a potem **Zapisz i połącz konto**.
+1. Wejdź na **apps.developer.allegro.pl**, zaloguj się kontem sprzedawcy (wymagane dwustopniowe logowanie) i zarejestruj nową
+   aplikację. Jako typ wybierz **„Aplikacja będzie działać w środowisku bez dostępu do przeglądarki albo klawiatury”** (device).
+   Wygeneruj też dla niej nagłówek **User-Agent** (apps.developer.allegro.pl/user-agent) — Allegro rozpoznaje po nim aplikację.
+2. W E-commerce MCP kliknij **+ Dodaj źródło → Allegro**, wpisz nazwę, zostaw środowisko **Produkcyjne**, wklej **Client ID**,
+   **Client Secret** i **User-Agent**, a potem kliknij **Zapisz i połącz konto**.
 3. Kliknij **Połącz z Allegro**. W przeglądarce otworzy się strona Allegro — sprawdź, czy kod na stronie zgadza się z kodem
    w aplikacji, i potwierdź dostęp. Po chwili status zmieni się na **Połączono**.
+
+Środowisko **Sandbox** służy do testów bez ruszania prawdziwego konta: to osobne Allegro (allegro.pl.allegrosandbox.pl) z własnymi
+kontami i własną rejestracją aplikacji (apps.developer.allegro.pl.allegrosandbox.pl). Klucze z produkcji tam nie działają.
 
 E-commerce MCP ma wyłącznie prawo odczytu: AI może przeglądać zamówienia i oferty, ale niczego na Allegro nie zmieni.
 Po 3 miesiącach bez używania Allegro wymaga ponownego połączenia — na karcie źródła pojawi się przycisk **Połącz ponownie**.

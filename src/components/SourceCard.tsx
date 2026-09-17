@@ -46,7 +46,10 @@ export function SourceCard({ source, provider, onChanged, onEdit, onDelete, onRe
         <ProviderIcon id={source.provider} />
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-base font-semibold">{source.name}</h3>
-          <p className="text-sm text-muted">{provider?.name ?? source.provider}</p>
+          <p className="text-sm text-muted">
+            {provider?.name ?? source.provider}
+            {source.settings.environment === "sandbox" && ` · ${t("source.sandbox")}`}
+          </p>
         </div>
         <Badge tone={tone}>{label}</Badge>
         <label className="flex cursor-pointer items-center" title={t("source.enabled")}>

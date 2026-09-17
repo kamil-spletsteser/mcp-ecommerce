@@ -39,7 +39,8 @@ Przed zakończeniem pracy przechodzą wszystkie: `fmt`, `clippy -D warnings`, `c
 - Klucze w `Source.settings` nie mogą zawierać słów `secret` ani `token` (pilnuje tego test konfiguracji).
 - Każdą wartość sekretną opakuj w `Secret` — rejestruje ją w redaktorze. Błędy twórz przez `ToolError::new` / `CommandError::new` (redagują treść).
 - Jeden wpis credential store ≤ 2560 bajtów (limit Windows; `MemoryStore` go wymusza) → długie sekrety jako osobne wpisy, zapis przez surowe bajty.
-- **Stałe hosty API.** Żaden argument narzędzia ani ustawienie nie może wskazać adresu (SSRF). Identyfikatory wstawiane do ścieżek waliduj ściśle.
+- **Stałe hosty API.** Żaden argument narzędzia ani ustawienie nie może wskazać adresu (SSRF); co najwyżej wybór z zamkniętej listy
+  stałych (np. Allegro produkcja/sandbox przez `FieldSpec::options`). Identyfikatory wstawiane do ścieżek waliduj ściśle.
 - **Żadnego uniwersalnego „wykonaj zapytanie API”.** Każde narzędzie ma wąski cel, schemat z `additionalProperties: false` i walidację w Ruście **przed** siecią.
 - Do modelu trafia whitelist pól (`pick`), nie surowa odpowiedź upstream.
 - **Zapisy nigdy nie są ponawiane automatycznie**; ponowienia tylko dla odczytów i błędów przejściowych (`http::with_retries`). Limit API → `RATE_LIMITED` bez ponowień.
@@ -58,7 +59,10 @@ Przed zakończeniem pracy przechodzą wszystkie: `fmt`, `clippy -D warnings`, `c
   `src-tauri/plugin/skills/` (test pluginu wyłapie odwołania do nieistniejących narzędzi). Nazwa krótka — test kontraktu pilnuje limitu
   64 znaków dla pełnej nazwy `<provider>__<source_id>__<tool>`.
 - **Komenda Tauri:** metoda w `Service` (z testem) → cienki wrapper w `app/mod.rs` + `generate_handler!` → `src/api.ts` → `src/test/fakeBackend.ts`.
-- **Tekst w GUI:** wyłącznie przez `t()` / `tDynamic()` i `src/i18n/pl.ts`.
+- **Pole formularza źródła:** `FieldSpec::new(...)` w `meta()` providera (`.options(&[..])` = lista wyboru, `.keeps_auth()` = zmiana nie
+  zrywa połączenia) + `validate_field` + teksty `form.field.<klucz>`, opcjonalnie `form.hint.<klucz>` i `form.option.<klucz>.<wartość>`.
+  Formularz w GUI renderuje się sam z metadanych. Wartości nagłówków HTTP waliduj do drukowalnego ASCII (wstrzyknięcie nagłówków).
+- **Tekst w GUI:** wyłącznie przez `t()` / `tDynamic()` / `tOptional()` i `src/i18n/pl.ts`.
 
 ## Testy
 

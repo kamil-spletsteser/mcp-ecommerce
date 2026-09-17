@@ -77,6 +77,24 @@ pub struct FieldSpec {
     pub secret: bool,
     pub required: bool,
     pub max_len: usize,
+    /// Niepuste = pole wyboru z zamkniętej listy (pierwsza pozycja jest domyślna); puste = dowolny tekst.
+    pub options: &'static [&'static str],
+    /// Czy zmiana wartości unieważnia połączenie (test od nowa, a dla OAuth skasowanie tokenów i ponowna autoryzacja).
+    pub resets_auth: bool,
+}
+
+impl FieldSpec {
+    pub const fn new(key: &'static str, secret: bool, required: bool, max_len: usize) -> Self {
+        Self { key, secret, required, max_len, options: &[], resets_auth: true }
+    }
+    pub const fn options(mut self, options: &'static [&'static str]) -> Self {
+        self.options = options;
+        self
+    }
+    pub const fn keeps_auth(mut self) -> Self {
+        self.resets_auth = false;
+        self
+    }
 }
 
 /// Możliwość opisana językiem użytkownika (tekst w i18n GUI pod kluczem `label_key`) + narzędzia MCP, które ją realizują.

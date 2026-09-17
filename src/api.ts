@@ -23,7 +23,8 @@ export interface Provider {
   id: string;
   name: string;
   auth: "fields" | "oauth_device";
-  fields: { key: string; secret: boolean; required: boolean; max_len: number }[];
+  /** `options` niepuste = pole wyboru (pierwsza pozycja domyślna). */
+  fields: { key: string; secret: boolean; required: boolean; max_len: number; options: string[]; resets_auth: boolean }[];
   capabilities: { label_key: string; write: boolean; tools: string[] }[];
   tools: { name: string; read_only: boolean }[];
 }

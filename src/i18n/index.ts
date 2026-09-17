@@ -16,6 +16,11 @@ export function tDynamic(key: string): string {
 }
 
 /** Tekst błędu dla kodu z Rusta; najpierw wariant dla providera (`errors.AUTH_FAILED.allegro`), potem ogólny. */
+/** Tekst opcjonalny (np. podpowiedź pod polem): brak klucza = nic do pokazania. */
+export function tOptional(key: string): string | null {
+  return key in dictionaries[locale] ? t(key as MessageKey) : null;
+}
+
 export function errorText(error: unknown, providerId?: string): string {
   const code = (error as Partial<CommandError> | null)?.code;
   const key = [`errors.${code}.${providerId}`, `errors.${code}`].find((k) => k in dictionaries[locale]);

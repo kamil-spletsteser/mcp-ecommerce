@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { api, type AuthorizationView, type Provider, type Source } from "../api";
-import { errorText, t, tDynamic } from "../i18n";
+import { errorText, t, tDynamic, tOptional } from "../i18n";
 import { Alert, Button, CopyBlock, Dialog, ProviderIcon } from "./ui";
 
 const inputClass = "mt-1 w-full rounded-lg border border-line bg-page px-3 py-2 text-sm";
@@ -12,7 +12,7 @@ export const needsAuthorization = (provider: Provider | undefined, source: Sourc
 function SourceForm({ provider, source, onSaved, onCancel }: { provider: Provider; source?: Source; onSaved: (source: Source) => void; onCancel: () => void }) {
   const [name, setName] = useState(source?.name ?? "");
   const [fields, setFields] = useState<Record<string, string>>(() =>
-    Object.fromEntries(provider.fields.filter((f) => !f.secret).map((f) => [f.key, source?.settings[f.key] ?? ""])),
+    Object.fromEntries(provider.fields.filter((f) => !f.secret).map((f) => [f.key, source?.settings[f.key] ?? f.options[0] ?? ""])),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,21 +38,36 @@ function SourceForm({ provider, source, onSaved, onCancel }: { provider: Provide
         {t("form.name")}
         <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder={t("form.name.placeholder")} maxLength={60} required autoFocus />
       </label>
-      {provider.fields.map((field) => (
-        <label key={field.key} className="block text-sm font-medium">
-          {tDynamic(source && field.secret ? `form.field.${field.key}.keep` : `form.field.${field.key}`)}
-          <input
-            className={inputClass}
-            type={field.secret ? "password" : "text"}
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={field.max_len}
-            required={field.required && !(source && field.secret)}
-            value={fields[field.key] ?? ""}
-            onChange={(e) => setFields({ ...fields, [field.key]: e.target.value })}
-          />
-        </label>
-      ))}
+      {provider.fields.map((field) => {
+        const hint = tOptional(`form.hint.${field.key}`);
+        const set = (value: string) => setFields({ ...fields, [field.key]: value });
+        return (
+          <label key={field.key} className="block text-sm font-medium">
+            {tDynamic(source && field.secret ? `form.field.${field.key}.keep` : `form.field.${field.key}`)}
+            {field.options.length > 0 ? (
+              <select className={inputClass} value={fields[field.key] ?? field.options[0]} onChange={(e) => set(e.target.value)}>
+                {field.options.map((option) => (
+                  <option key={option} value={option}>
+                    {tDynamic(`form.option.${field.key}.${option}`)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className={inputClass}
+                type={field.secret ? "password" : "text"}
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={field.max_len}
+                required={field.required && !(source && field.secret)}
+                value={fields[field.key] ?? ""}
+                onChange={(e) => set(e.target.value)}
+              />
+            )}
+            {hint && <span className="mt-1 block text-xs leading-relaxed font-normal text-muted">{hint}</span>}
+          </label>
+        );
+      })}
       <p className="text-xs leading-relaxed text-muted">{source ? t("form.secret.saved") : t("form.secret.note")}</p>
       {error && <Alert tone="danger">{error}</Alert>}
       <div className="flex justify-end gap-2 pt-1">

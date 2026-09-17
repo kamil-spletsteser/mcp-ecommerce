@@ -169,6 +169,9 @@ impl Service {
                     if value.len() > field.max_len {
                         return Err(CommandError::new("VALIDATION_ERROR", format!("Field '{}' is too long.", field.key)));
                     }
+                    if !field.options.is_empty() && !field.options.contains(&value) {
+                        return Err(CommandError::new("VALIDATION_ERROR", format!("Field '{}' must be one of: {}.", field.key, field.options.join(", "))));
+                    }
                     provider.validate_field(field.key, value)?;
                     match secret {
                         Some(secret) => out.secrets.push((field.key.to_string(), secret)),
@@ -230,7 +233,14 @@ impl Service {
         let values = Self::validate_fields(provider.as_ref(), &fields, true)?;
         let name = name.map(|n| Self::validate_name(&n)).transpose()?;
 
-        let settings_changed = values.settings.iter().any(|(k, v)| source.settings[k.as_str()].as_str() != Some(v.as_str()));
+        // np. zmiana User-Agenta nie wymaga ponownego łączenia konta, zmiana Client ID albo środowiska — tak.
+        // Brak wartości w starszym źródle = wartość domyślna pola wyboru (samo otwarcie i zapisanie edycji niczego nie zrywa).
+        let meta = provider.meta();
+        let settings_changed = values.settings.iter().any(|(key, value)| {
+            let field = meta.fields.iter().find(|f| f.key == key.as_str());
+            let current = source.settings[key.as_str()].as_str().or_else(|| field.and_then(|f| f.options.first().copied()));
+            field.is_some_and(|f| f.resets_auth) && current != Some(value.as_str())
+        });
         let credentials_changed = settings_changed || !values.secrets.is_empty();
         for (kind, secret) in &values.secrets {
             self.secrets.set(&SecretKey::new(&source.provider, source_id, kind), secret).map_err(Self::store_error)?;
@@ -521,13 +531,8 @@ mod tests {
             .await;
         Mock::given(path("/me")).respond_with(ResponseTemplate::new(200).set_body_json(json!({ "login": "sklep_demo" }))).mount(&server).await;
         let dir = tempfile::tempdir().unwrap();
-        let allegro = crate::integrations::allegro::Allegro::with_urls(
-            server.uri(),
-            server.uri(),
-            Duration::from_secs(2),
-            Duration::from_millis(1),
-            dir.path().join("refresh.lock"),
-        );
+        let allegro =
+            crate::integrations::allegro::Allegro::with_mock(server.uri(), Duration::from_secs(2), Duration::from_millis(1), dir.path().join("refresh.lock"));
         let secrets = Arc::new(MemoryStore::default());
         let mut service = Service::new(Registry::new(vec![Arc::new(allegro)]), secrets.clone(), dir.path().join("data"));
         service.slow_down_step = Duration::ZERO;
@@ -535,7 +540,12 @@ mod tests {
     }
 
     fn allegro_form() -> HashMap<String, String> {
-        HashMap::from([("client_id".to_string(), "0123456789abcdef0123456789abcdef".to_string()), ("client_secret".to_string(), CLIENT_SECRET.to_string())])
+        HashMap::from([
+            ("client_id".to_string(), "0123456789abcdef0123456789abcdef".to_string()),
+            ("client_secret".to_string(), CLIENT_SECRET.to_string()),
+            ("user_agent".to_string(), "SklepDemo/1.0.0 (+https://sklep.example/info)".to_string()),
+            ("environment".to_string(), "sandbox".to_string()),
+        ])
     }
 
     fn token_response(status: u16, body: serde_json::Value) -> Mock {
@@ -549,6 +559,10 @@ mod tests {
         // 1. formularz: Client ID do konfiguracji, Client Secret tylko do credential store; konto jeszcze niepołączone (bez sieci)
         let source = service.add_source("allegro", "Moje Allegro", allegro_form()).await.unwrap();
         assert_eq!(source.settings["client_id"], "0123456789abcdef0123456789abcdef");
+        assert_eq!(
+            (source.settings["environment"].as_str(), source.settings["user_agent"].as_str()),
+            (Some("sandbox"), Some("SklepDemo/1.0.0 (+https://sklep.example/info)"))
+        );
         assert_eq!(source.last_test.as_ref().unwrap().code.as_deref(), Some("CREDENTIAL_UNAVAILABLE"));
         assert_eq!(server.received_requests().await.unwrap().len(), 0);
 
@@ -572,10 +586,36 @@ mod tests {
             assert!(!exposed.contains(secret), "{secret} wyciekł: {exposed}");
         }
 
-        // 5. zmiana danych aplikacji kasuje tokeny (wymusza ponowną autoryzację); usunięcie źródła kasuje wszystko
+        // 5. źródło zapisane przed dodaniem pola „środowisko”: zapis edycji z domyślną wartością nie zrywa połączenia
+        service
+            .modify("moje_allegro", |s| {
+                s.settings = json!({ "client_id": "0123456789abcdef0123456789abcdef", "user_agent": "SklepDemo/1.0.0 (+https://sklep.example/info)" })
+            })
+            .await
+            .unwrap();
+        let legacy =
+            service.update_source("moje_allegro", Some("Moje Allegro".into()), HashMap::from([("environment".into(), "production".into())])).await.unwrap();
+        assert!(legacy.last_test.as_ref().unwrap().ok && stored("refresh_token").is_some());
+        service.modify("moje_allegro", |s| s.settings["environment"] = "sandbox".into()).await.unwrap();
+
+        // …tak samo zmiana samego User-Agenta…
+        let renamed_agent = service
+            .update_source("moje_allegro", None, HashMap::from([("user_agent".into(), "SklepDemo/1.1.0 (+https://sklep.example/info)".into())]))
+            .await
+            .unwrap();
+        assert_eq!(renamed_agent.settings["user_agent"], "SklepDemo/1.1.0 (+https://sklep.example/info)");
+        assert!(renamed_agent.last_test.as_ref().unwrap().ok && stored("refresh_token").is_some());
+        // …a zmiana środowiska już tak (tokeny sandboxa są bezużyteczne na produkcji)
+        let moved = service.update_source("moje_allegro", None, HashMap::from([("environment".into(), "production".into())])).await.unwrap();
+        assert_eq!(moved.last_test.unwrap().code.as_deref(), Some("CREDENTIAL_UNAVAILABLE"));
+        assert_eq!(stored("refresh_token"), None);
+        let bad_environment = service.update_source("moje_allegro", None, HashMap::from([("environment".into(), "staging".into())])).await;
+        assert_eq!(bad_environment.unwrap_err().code, "VALIDATION_ERROR");
+
+        // 6. zmiana danych aplikacji kasuje tokeny (wymusza ponowną autoryzację); usunięcie źródła kasuje wszystko
         let changed = service.update_source("moje_allegro", None, HashMap::from([("client_secret".into(), format!("{CLIENT_SECRET}X"))])).await.unwrap();
         assert_eq!(changed.last_test.unwrap().code.as_deref(), Some("CREDENTIAL_UNAVAILABLE"));
-        assert_eq!((stored("access_token"), stored("refresh_token")), (None, None));
+        assert_eq!(stored("access_token"), None);
         service.delete_source("moje_allegro").await.unwrap();
         assert_eq!(stored("client_secret"), None);
     }
